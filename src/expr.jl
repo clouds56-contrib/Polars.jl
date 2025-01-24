@@ -139,7 +139,7 @@ Transforms a literal value as an expression which will broadcast when used with 
 expressions.
 """
 function lit(v)
-    convert(Expr, v) 
+    convert(Expr, v)
 end
 
 """
@@ -322,7 +322,7 @@ using ..Polars: @generate_expr_fns, API, polars_expr_t, Expr
     gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::titlecase)
     gen_impl_expr_str!(polars_expr_str_n_chars, StringNameSpace::n_chars)
     gen_impl_expr_str!(polars_expr_str_lengths, StringNameSpace::lengths)
-    gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
+    # gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode)
 
     gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with)
     gen_impl_expr_binary_str!(polars_expr_str_ends_with, StringNameSpace::ends_with)

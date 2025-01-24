@@ -522,9 +522,9 @@ function polars_expr_str_lengths(a)
     @ccall libpolars.polars_expr_str_lengths(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
 end
 
-function polars_expr_str_explode(a)
-    @ccall libpolars.polars_expr_str_explode(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
-end
+# function polars_expr_str_explode(a)
+#     @ccall libpolars.polars_expr_str_explode(a::Ptr{polars_expr_t})::Ptr{polars_expr_t}
+# end
 
 function polars_expr_str_starts_with(a, b)
     @ccall libpolars.polars_expr_str_starts_with(a::Ptr{polars_expr_t}, b::Ptr{polars_expr_t})::Ptr{polars_expr_t}

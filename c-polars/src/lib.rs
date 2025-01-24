@@ -73,7 +73,7 @@ pub struct polars_lazy_group_by_t {
 }
 
 pub struct polars_series_t {
-    inner: Series,
+    inner: Column,
 }
 
 pub struct polars_expr_t {
@@ -124,7 +124,7 @@ pub extern "C" fn polars_dataframe_new_from_carrow(
     // Safety: carray will not be destroyed at the end of the function since import_array_from_c
     // takes ownership of it. Therefore, it should be destroyed once the dataframe is destroyed
     // using polars_dataframe_destroy.
-    let Ok(array) = (unsafe { ffi::import_array_from_c(carray, field.data_type.clone()) }) else {
+    let Ok(array) = (unsafe { ffi::import_array_from_c(carray, field.dtype.clone()) }) else {
         return std::ptr::null_mut();
     };
 
@@ -144,10 +144,10 @@ pub extern "C" fn polars_dataframe_new_from_carrow(
 /// Returns a ArrowSchema describing the dataframe's schema according to Arrow C Data interface.
 #[no_mangle]
 pub unsafe extern "C" fn polars_dataframe_schema(df: *mut polars_dataframe_t) -> ArrowSchema {
-    let schema = (*df).inner.schema().to_arrow();
+    let schema = (*df).inner.schema().to_arrow(CompatLevel::newest());
     let structfield = arrow::datatypes::Field::new(
-        "polars.dataframe",
-        arrow::datatypes::DataType::Struct(schema.fields),
+        "polars.dataframe".into(),
+        arrow::datatypes::ArrowDataType::Struct(schema.iter().map(|(_, f)| f.clone()).collect()),
         false,
     );
     ffi::export_field_to_c(&structfield)
@@ -160,7 +160,7 @@ pub unsafe extern "C" fn polars_dataframe_new_from_series(
     out: *mut *mut polars_dataframe_t,
 ) -> *const polars_error_t {
     let slice: &[*mut polars_series_t] = std::slice::from_raw_parts(series, nseries);
-    let series: Vec<Series> = slice.iter().map(|s| (**s).inner.clone()).collect();
+    let series: Vec<Column> = slice.iter().map(|s| (**s).inner.clone()).collect();
     let df = match DataFrame::new(series) {
         Ok(df) => df,
         Err(err) => return make_error(err),
@@ -262,8 +262,8 @@ pub unsafe extern "C" fn polars_dataframe_get(
     };
 
     let df = &(*df).inner;
-    let mut series = match df.select_series(&[name]) {
-        Ok(series) => series,
+    let mut series = match df.select_columns([name]) {
+        Ok(columns) => columns,
         Err(err) => return make_error(err),
     };
 
@@ -319,7 +319,12 @@ pub unsafe extern "C" fn polars_lazy_frame_sort(
     let mut df = Box::from_raw(df);
     df.inner = df
         .inner
-        .sort_by_exprs(&exprs, descending, nulls_last, maintain_order);
+        .sort_by_exprs(&exprs,
+            SortMultipleOptions::new()
+                .with_order_descending_multi(descending.iter().copied())
+                .with_nulls_last(nulls_last)
+                .with_maintain_order(maintain_order),
+            );
     std::mem::forget(df);
 }
 
@@ -406,7 +411,7 @@ pub unsafe extern "C" fn polars_lazy_frame_group_by(
         .iter()
         .map(|expr| (**expr).inner.clone())
         .collect();
-    let gb = (*df).inner.clone().groupby(&exprs);
+    let gb = (*df).inner.clone().group_by(&exprs);
     Box::into_raw(Box::new(polars_lazy_group_by_t { inner: gb }))
 }
 

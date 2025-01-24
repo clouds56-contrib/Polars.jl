@@ -65,7 +65,7 @@ pub unsafe extern "C" fn polars_expr_literal_utf8(
         Ok(value) => value,
         Err(err) => return make_error(err),
     };
-    *out = make_expr(Expr::Literal(LiteralValue::Utf8(value.to_owned())));
+    *out = make_expr(Expr::Literal(LiteralValue::String(value.into())));
     std::ptr::null()
 }
 
@@ -111,7 +111,7 @@ pub unsafe extern "C" fn polars_expr_prefix(
         Ok(value) => value,
         Err(err) => return make_error(err),
     };
-    let aliased = (*expr).inner.clone().prefix(name);
+    let aliased = (*expr).inner.clone().name().prefix(name);
     *out = make_expr(aliased);
     std::ptr::null()
 }
@@ -127,7 +127,17 @@ pub unsafe extern "C" fn polars_expr_suffix(
         Ok(value) => value,
         Err(err) => return make_error(err),
     };
-    let aliased = (*expr).inner.clone().suffix(name);
+    let aliased = (*expr).inner.clone().name().suffix(name);
+    *out = make_expr(aliased);
+    std::ptr::null()
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn polars_expr_keep_name(
+    expr: *const polars_expr_t,
+    out: *mut *const polars_expr_t,
+) -> *const polars_error_t {
+    let aliased = (*expr).inner.clone().name().keep();
     *out = make_expr(aliased);
     std::ptr::null()
 }
@@ -151,8 +161,6 @@ macro_rules! gen_impl_expr {
         }
     };
 }
-
-gen_impl_expr!(polars_expr_keep_name, Expr::keep_name);
 
 gen_impl_expr!(polars_expr_sum, Expr::sum);
 gen_impl_expr!(polars_expr_product, Expr::product);
@@ -233,7 +241,7 @@ macro_rules! gen_impl_expr_list {
     };
 }
 
-gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::lengths);
+gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::len);
 gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max);
 gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min);
 gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max);
@@ -259,7 +267,7 @@ macro_rules! gen_impl_expr_binary_list {
     };
 }
 
-gen_impl_expr_binary_list!(polars_expr_list_get, ListNameSpace::get);
+gen_impl_expr_binary_list!(polars_expr_list_get, |a, b| ListNameSpace::get(a, b, true));
 gen_impl_expr_binary_list!(polars_expr_list_head, ListNameSpace::head);
 gen_impl_expr_binary_list!(polars_expr_list_contains, ListNameSpace::contains);
 
@@ -277,9 +285,9 @@ gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::to_uppercase);
 gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::to_lowercase);
 #[cfg(feature = "nightly")]
 gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::to_titlecase);
-gen_impl_expr_str!(polars_expr_str_n_chars, StringNameSpace::n_chars);
-gen_impl_expr_str!(polars_expr_str_lengths, StringNameSpace::lengths);
-gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode);
+gen_impl_expr_str!(polars_expr_str_n_chars, StringNameSpace::len_chars);
+gen_impl_expr_str!(polars_expr_str_lengths, StringNameSpace::len_bytes);
+// gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode);
 
 macro_rules! gen_impl_expr_binary_str {
     ($n: ident, $t: expr) => {
@@ -338,9 +346,9 @@ pub unsafe extern "C" fn polars_expr_struct_rename_fields(
         .iter()
         .zip(lens)
         .map(|(name, len)| {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(*name, *len)).to_owned()
+            std::str::from_utf8_unchecked(std::slice::from_raw_parts(*name, *len))
         })
-        .collect();
+        .collect::<Vec<_>>();
 
     let expr = (*a).inner.clone().struct_().rename_fields(names);
     make_expr(expr)

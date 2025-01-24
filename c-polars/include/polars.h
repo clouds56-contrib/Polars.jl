@@ -337,7 +337,7 @@ const struct polars_expr_t *polars_expr_str_n_chars(const struct polars_expr_t *
 
 const struct polars_expr_t *polars_expr_str_lengths(const struct polars_expr_t *a);
 
-const struct polars_expr_t *polars_expr_str_explode(const struct polars_expr_t *a);
+// const struct polars_expr_t *polars_expr_str_explode(const struct polars_expr_t *a);
 
 const struct polars_expr_t *polars_expr_str_starts_with(const struct polars_expr_t *a,
                                                         const struct polars_expr_t *b);

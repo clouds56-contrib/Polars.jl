@@ -40,10 +40,10 @@ impl polars_value_type_t {
             DataType::Float32 => PolarsValueTypeFloat32,
             DataType::Float64 => PolarsValueTypeFloat64,
             DataType::List(_) => PolarsValueTypeList,
-            DataType::Utf8 => PolarsValueTypeUtf8,
+            DataType::String => PolarsValueTypeUtf8,
             DataType::Struct(_) => PolarsValueTypeStruct,
             DataType::Binary => PolarsValueTypeBinary,
-            DataType::Unknown => PolarsValueTypeUnknown,
+            DataType::Unknown(_) => PolarsValueTypeUnknown,
             _ => PolarsValueTypeUnknown,
         }
     }
@@ -63,10 +63,10 @@ impl polars_value_type_t {
             PolarsValueTypeInt64 => DataType::Int64,
             PolarsValueTypeFloat32 => DataType::Float32,
             PolarsValueTypeFloat64 => DataType::Float64,
-            PolarsValueTypeUtf8 => DataType::Utf8,
+            PolarsValueTypeUtf8 => DataType::String,
             PolarsValueTypeBinary => DataType::Binary,
-            PolarsValueTypeUnknown => DataType::Unknown,
-            _ => DataType::Unknown, // Cannot map structs and lists
+            PolarsValueTypeUnknown => DataType::Unknown(Default::default()),
+            _ => DataType::Unknown(Default::default()), // Cannot map structs and lists
         }
     }
 }
@@ -117,7 +117,7 @@ pub unsafe extern "C" fn polars_value_list_get(
     out: *mut *mut polars_series_t,
 ) -> *const polars_error_t {
     match &(*value).inner {
-        AnyValue::List(series) => *out = make_series(series.clone()),
+        AnyValue::List(series) => *out = make_series(series.clone().into()),
         _ => return make_error("value is not of type list"),
     }
     std::ptr::null()
@@ -131,7 +131,7 @@ pub unsafe extern "C" fn polars_value_utf8_get(
 ) -> *const polars_error_t {
     let mut w = UserIOCallback(callback, user);
     let Err(err) = (match (*value).inner {
-        AnyValue::Utf8(s) => w.write(s.as_bytes()),
+        AnyValue::String(s) => w.write(s.as_bytes()),
         _ => return make_error("value is not of type utf8"),
     }) else {
         return std::ptr::null();
@@ -176,12 +176,12 @@ pub unsafe extern "C" fn polars_value_struct_get<'a: 'b, 'b>(
 
     let field = &fields[fieldidx];
 
-    let value = match field.data_type() {
+    let value = match field.dtype() {
         DataType::Int64 => {
             let array = series.as_any().downcast_ref::<Int64Array>().unwrap();
             array.get(value_index).map(|val| AnyValue::Int64(val))
         }
-        _ => unimplemented!("{:?}", field.data_type()),
+        _ => unimplemented!("{:?}", field.dtype()),
     };
 
     let value = value.unwrap_or(AnyValue::Null);
