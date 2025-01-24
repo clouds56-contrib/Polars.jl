@@ -72,8 +72,9 @@ function parse_format(schema)
     fmt == "e" && return MaybeMissing{Float16}
     fmt == "f" && return MaybeMissing{Float32}
     fmt == "g" && return MaybeMissing{Float64}
-    fmt == "U" && return MaybeMissing{String}
-    fmt == "u" && return MaybeMissing{String}
+    fmt == "U" && return MaybeMissing{String} # large utf-8 string
+    fmt == "u" && return MaybeMissing{String} # utf-8 string
+    fmt == "vu" && return MaybeMissing{String} # utf-8 view
     fmt == "z" && return Vector{UInt8}
     fmt == "Z" && return Vector{UInt8}
 
@@ -103,7 +104,7 @@ function parse_format(schema)
         return MaybeMissing{Series{T}}
     end
 
-    if startswith(fmt, "+w") # Fixed size list 
+    if startswith(fmt, "+w") # Fixed size list
         @assert schema.n_children
         children = unsafe_load(schema.children) |> unsafe_load
         T = parse_format(children)

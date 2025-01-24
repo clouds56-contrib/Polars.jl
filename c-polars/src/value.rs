@@ -132,6 +132,7 @@ pub unsafe extern "C" fn polars_value_utf8_get(
     let mut w = UserIOCallback(callback, user);
     let Err(err) = (match (*value).inner {
         AnyValue::String(s) => w.write(s.as_bytes()),
+        AnyValue::StringOwned(ref s) => w.write(s.as_bytes()),
         _ => return make_error("value is not of type utf8"),
     }) else {
         return std::ptr::null();
