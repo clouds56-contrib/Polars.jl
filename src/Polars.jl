@@ -178,7 +178,7 @@ function _select!(df::LazyFrame, exprs::Vector)
     exprs = map(ex -> ex isa String ? col(ex) : ex, exprs)
     exprs = convert(Vector{Expr}, exprs)
     @GC.preserve exprs begin
-        exprs_ptrs = Ptr{polars_expr_t}[expr.ptr for expr in exprs]
+        exprs_ptrs = polars_expr_t[expr.ptr for expr in exprs]
         polars_lazy_frame_select(df, exprs_ptrs, length(exprs_ptrs))
     end
     df
@@ -203,8 +203,8 @@ also returns the existing columns.
 ```julia-repl
 julia> df = DataFrame((; x=[1,2,3]))
 3×1 DataFrame
- x      
- Int64? 
+ x
+ Int64?
 ────────
       1
       2
@@ -212,8 +212,8 @@ julia> df = DataFrame((; x=[1,2,3]))
 
 julia> with_columns(df, col("x") * 2 |> alias("2x"))
 3×2 DataFrame
- x       2x     
- Int64?  Int64? 
+ x       2x
+ Int64?  Int64?
 ────────────────
       1       2
       2       4

@@ -4,6 +4,7 @@
 use std::ffi::c_void;
 use std::io::Write;
 
+use jlrs::data::types::foreign_type::OpaqueType;
 use polars::prelude::*;
 use polars_core::utils::arrow::{
     self,
@@ -14,6 +15,7 @@ use polars_core::utils::arrow::{
 mod expr;
 mod series;
 mod value;
+mod julia;
 
 #[no_mangle]
 pub unsafe extern "C" fn polars_version(out: *mut *const u8) -> usize {
@@ -79,6 +81,8 @@ pub struct polars_series_t {
 pub struct polars_expr_t {
     inner: Expr,
 }
+
+unsafe impl OpaqueType for polars_expr_t {}
 
 fn make_dataframe(df: DataFrame) -> *mut polars_dataframe_t {
     Box::into_raw(Box::new(polars_dataframe_t { inner: df }))

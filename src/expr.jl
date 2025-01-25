@@ -8,9 +8,9 @@ such as [`col`](@ref).
 mutable struct Expr <: Number
                     #  ↑
                     #  this is needed to use type promotion
-    ptr::Ptr{polars_expr_t}
+    ptr::polars_expr_t
 
-    Expr(ptr) = finalizer(polars_expr_destroy, new(ptr))
+    Expr(ptr) = new(ptr)
 end
 
 Base.unsafe_convert(::Type{Ptr{polars_expr_t}}, expr::Expr) = expr.ptr
@@ -84,11 +84,9 @@ Base.:|(a::Expr, b) = or(promote(a, b)...)
 Returns an expression referencing a column in a dataframe. The special
 column name `"*"` will select all columns in the dataframe.
 """
-function col(name)
-    expr = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_col(name, length(name), expr)
-    polars_error(err)
-    return Expr(expr[])
+function col(name::String)
+    out = polars_expr_col(name)
+    return Expr(out)
 end
 
 """
@@ -97,11 +95,9 @@ end
 
 Renames the result of this expression to a new name.
 """
-function alias(expr, alias)
-    out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_alias(expr, alias, length(alias), out)
-    polars_error(err)
-    return Expr(out[])
+function alias(expr::Expr, alias::String)
+    out = polars_expr_alias(expr, alias)
+    return Expr(out)
 end
 alias(new_name) = Base.Fix2(alias, new_name)
 
@@ -111,11 +107,9 @@ alias(new_name) = Base.Fix2(alias, new_name)
 
 Adds a prefix to the name of the resulting expression.
 """
-function prefix(expr, pref)
-    out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_prefix(expr, pref, length(pref), out)
-    polars_error(err)
-    return Expr(out[])
+function prefix(expr::Expr, pref::String)
+    out = polars_expr_prefix(expr, pref)
+    return Expr(out)
 end
 prefix(pref) = Base.Fix2(prefix, pref)
 
@@ -125,11 +119,9 @@ prefix(pref) = Base.Fix2(prefix, pref)
 
 Adds a suffix to the name of the resulting expression.
 """
-function suffix(expr, suf)
-    out = Ref{Ptr{polars_expr_t}}()
-    err = polars_expr_suffix(expr, suf, length(suf), out)
-    polars_error(err)
-    return Expr(out[])
+function suffix(expr::Expr, suf::String)
+    out = polars_expr_suffix(expr, suf)
+    return Expr(out)
 end
 suffix(suf) = Base.Fix2(suffix, suf)
 
@@ -200,13 +192,13 @@ macro generate_expr_fns(ex)
         if occursin("binary", gen_name)
             push!(sig.args, Base.Expr(:(::), :a, :Expr), Base.Expr(:(::), :b, :Expr))
             body = quote
-                out = API.$(cname)(a, b)
+                out = API.$(cname)(a.ptr, b.ptr)
                 Expr(out)
             end
         else
             push!(sig.args, Base.Expr(:(::), :expr, :Expr))
             body = quote
-                out = API.$(cname)(expr)
+                out = API.$(cname)(expr.ptr)
                 Expr(out)
             end
         end

@@ -1,355 +1,168 @@
+use jlrs::{data::managed::{ccall_ref::CCallRefRet, value::typed::TypedValue}, error::JlrsResult, prelude::{Bool, JuliaString}, weak_handle};
 use polars::{
     lazy::dsl::{string::StringNameSpace, ListNameSpace},
     prelude::*,
 };
 
-use crate::{value::polars_value_type_t, *};
+use crate::polars_expr_t;
 
-fn make_expr(expr: Expr) -> *const polars_expr_t {
-    Box::into_raw(Box::new(polars_expr_t { inner: expr }))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_destroy(expr: *const polars_expr_t) {
-    assert!(!expr.is_null());
-    let _ = Box::from_raw(expr.cast_mut());
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_bool(value: bool) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Boolean(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_null() -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Null))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_i32(value: i32) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Int32(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_i64(value: i64) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Int64(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_u32(value: u32) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::UInt32(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_u64(value: u64) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::UInt64(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_f32(value: f32) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Float32(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_f64(value: f64) -> *const polars_expr_t {
-    make_expr(Expr::Literal(LiteralValue::Float64(value)))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_literal_utf8(
-    s: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    let value = match std::str::from_utf8(std::slice::from_raw_parts(s, len)) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
-    *out = make_expr(Expr::Literal(LiteralValue::String(value.into())));
-    std::ptr::null()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_col(
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    let name = match std::str::from_utf8(std::slice::from_raw_parts(name, len)) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
-    let expr = col(name);
-    *out = make_expr(expr);
-    std::ptr::null()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_alias(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    let name = match std::str::from_utf8(std::slice::from_raw_parts(name, len)) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
-    let aliased = (*expr).inner.clone().alias(name);
-    *out = make_expr(aliased);
-    std::ptr::null()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_prefix(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    let name = match std::str::from_utf8(std::slice::from_raw_parts(name, len)) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
-    let aliased = (*expr).inner.clone().name().prefix(name);
-    *out = make_expr(aliased);
-    std::ptr::null()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_suffix(
-    expr: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    let name = match std::str::from_utf8(std::slice::from_raw_parts(name, len)) {
-        Ok(value) => value,
-        Err(err) => return make_error(err),
-    };
-    let aliased = (*expr).inner.clone().name().suffix(name);
-    *out = make_expr(aliased);
-    std::ptr::null()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_keep_name(
-    expr: *const polars_expr_t,
-    out: *mut *const polars_expr_t,
-) -> *const polars_error_t {
-    let aliased = (*expr).inner.clone().name().keep();
-    *out = make_expr(aliased);
-    std::ptr::null()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_cast(
-    expr: *const polars_expr_t,
-    dtype: polars_value_type_t,
-) -> *const polars_expr_t {
-    let expr = (*expr).inner.clone();
-    make_expr(cast(expr, dtype.to_dtype()))
+fn jlrs_make_expr(expr: Expr) -> CCallRefRet<polars_expr_t> {
+    match weak_handle!() {
+        Ok(handle) => CCallRefRet::new(TypedValue::new(handle, polars_expr_t { inner: expr }).leak()),
+        Err(_) => panic!("not called from Julia"),
+    }
 }
 
 macro_rules! gen_impl_expr {
+    ($n: ident, $ns: expr, $t: expr) => {
+        pub fn $n(&self) -> CCallRefRet<Self> {
+            let expr = &self.inner;
+            let out_expr = $t($ns(expr.clone()));
+            jlrs_make_expr(out_expr)
+        }
+    };
     ($n: ident, $t: expr) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $n(expr: *const polars_expr_t) -> *const polars_expr_t {
-            let expr = &(*expr).inner;
+        pub fn $n(&self) -> CCallRefRet<Self> {
+            let expr = &self.inner;
             let out_expr = $t(expr.clone());
-            make_expr(out_expr)
+            jlrs_make_expr(out_expr)
+        }
+    };
+
+    ($($n: ident)*) => {
+        $(gen_impl_expr!($n, Expr::$n);)*
+    };
+    ($ns:ident@$ns_trait:ty: $($n: ident)*) => {
+        paste::paste!{
+            $(gen_impl_expr!([<$ns _ $n>], Expr::$ns, $ns_trait::$n);)*
         }
     };
 }
-
-gen_impl_expr!(polars_expr_sum, Expr::sum);
-gen_impl_expr!(polars_expr_product, Expr::product);
-gen_impl_expr!(polars_expr_mean, Expr::mean);
-gen_impl_expr!(polars_expr_median, Expr::median);
-gen_impl_expr!(polars_expr_min, Expr::min);
-gen_impl_expr!(polars_expr_max, Expr::max);
-gen_impl_expr!(polars_expr_arg_min, Expr::arg_min);
-gen_impl_expr!(polars_expr_arg_max, Expr::arg_max);
-gen_impl_expr!(polars_expr_nan_min, Expr::nan_min);
-gen_impl_expr!(polars_expr_nan_max, Expr::nan_max);
-
-gen_impl_expr!(polars_expr_floor, Expr::floor);
-gen_impl_expr!(polars_expr_ceil, Expr::ceil);
-gen_impl_expr!(polars_expr_abs, Expr::abs);
-gen_impl_expr!(polars_expr_cos, Expr::cos);
-gen_impl_expr!(polars_expr_sin, Expr::sin);
-gen_impl_expr!(polars_expr_tan, Expr::tan);
-gen_impl_expr!(polars_expr_cosh, Expr::cosh);
-gen_impl_expr!(polars_expr_sinh, Expr::sinh);
-gen_impl_expr!(polars_expr_tanh, Expr::tanh);
-
-gen_impl_expr!(polars_expr_n_unique, Expr::n_unique);
-gen_impl_expr!(polars_expr_unique, Expr::unique);
-gen_impl_expr!(polars_expr_count, Expr::count);
-gen_impl_expr!(polars_expr_first, Expr::first);
-gen_impl_expr!(polars_expr_last, Expr::last);
-
-gen_impl_expr!(polars_expr_not, Expr::not);
-gen_impl_expr!(polars_expr_is_finite, Expr::is_finite);
-gen_impl_expr!(polars_expr_is_infinite, Expr::is_infinite);
-gen_impl_expr!(polars_expr_is_nan, Expr::is_nan);
-gen_impl_expr!(polars_expr_is_null, Expr::is_null);
-gen_impl_expr!(polars_expr_is_not_null, Expr::is_not_null);
-gen_impl_expr!(polars_expr_null_count, Expr::null_count);
-gen_impl_expr!(polars_expr_drop_nans, Expr::drop_nans);
-gen_impl_expr!(polars_expr_drop_nulls, Expr::drop_nulls);
-
-gen_impl_expr!(polars_expr_implode, Expr::implode);
-gen_impl_expr!(polars_expr_flatten, Expr::flatten);
-gen_impl_expr!(polars_expr_reverse, Expr::reverse);
 
 macro_rules! gen_impl_expr_binary {
+    ($n: ident, $ns: expr, $t: expr) => {
+        pub fn $n(
+            &self,
+            b: &Self,
+        ) -> CCallRefRet<Self> {
+            let a = &self.inner;
+            let b = &b.inner;
+            let out_expr = $t($ns(a.clone()), b.clone());
+            jlrs_make_expr(out_expr)
+        }
+    };
     ($n: ident, $t: expr) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $n(
-            a: *const polars_expr_t,
-            b: *const polars_expr_t,
-        ) -> *const polars_expr_t {
-            let a = &(*a).inner;
-            let b = &(*b).inner;
+        pub fn $n(
+            &self,
+            b: &Self,
+        ) -> CCallRefRet<Self> {
+            let a = &self.inner;
+            let b = &b.inner;
             let out_expr = $t(a.clone(), b.clone());
-            make_expr(out_expr)
+            jlrs_make_expr(out_expr)
+        }
+    };
+
+    ($($n: ident)*) => {
+        $(gen_impl_expr_binary!($n, Expr::$n);)*
+    };
+    ($ns:ident@$ns_trait:ty: $($n: ident)*) => {
+        paste::paste!{
+            $(gen_impl_expr_binary!([<$ns _ $n>], Expr::$ns, $ns_trait::$n);)*
         }
     };
 }
 
-gen_impl_expr_binary!(polars_expr_eq, Expr::eq);
-gen_impl_expr_binary!(polars_expr_lt, Expr::lt);
-gen_impl_expr_binary!(polars_expr_gt, Expr::gt);
-gen_impl_expr_binary!(polars_expr_or, Expr::or);
-gen_impl_expr_binary!(polars_expr_xor, Expr::xor);
-gen_impl_expr_binary!(polars_expr_and, Expr::and);
+impl polars_expr_t {
+    pub fn literal_bool(value: Bool) -> CCallRefRet<Self> {
+        jlrs_make_expr(Expr::Literal(LiteralValue::Boolean(value.as_bool())))
+    }
 
-gen_impl_expr_binary!(polars_expr_pow, Expr::pow);
-gen_impl_expr_binary!(polars_expr_add, core::ops::Add::add);
-gen_impl_expr_binary!(polars_expr_sub, core::ops::Sub::sub);
-gen_impl_expr_binary!(polars_expr_mul, core::ops::Mul::mul);
-gen_impl_expr_binary!(polars_expr_div, core::ops::Div::div);
+    pub fn literal_null() -> CCallRefRet<Self> {
+        jlrs_make_expr(Expr::Literal(LiteralValue::Null))
+    }
 
-macro_rules! gen_impl_expr_list {
-    ($n: ident, $t: expr) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $n(a: *const polars_expr_t) -> *const polars_expr_t {
-            let expr = $t((*a).inner.clone().list());
-            make_expr(expr)
-        }
-    };
-}
+    pub fn literal_i32(value: i32) -> CCallRefRet<Self> {
+        jlrs_make_expr(Expr::Literal(LiteralValue::Int32(value)))
+    }
 
-gen_impl_expr_list!(polars_expr_list_lengths, ListNameSpace::len);
-gen_impl_expr_list!(polars_expr_list_max, ListNameSpace::max);
-gen_impl_expr_list!(polars_expr_list_min, ListNameSpace::min);
-gen_impl_expr_list!(polars_expr_list_arg_max, ListNameSpace::arg_max);
-gen_impl_expr_list!(polars_expr_list_arg_min, ListNameSpace::arg_min);
-gen_impl_expr_list!(polars_expr_list_sum, ListNameSpace::sum);
-gen_impl_expr_list!(polars_expr_list_mean, ListNameSpace::mean);
-gen_impl_expr_list!(polars_expr_list_reverse, ListNameSpace::reverse);
-gen_impl_expr_list!(polars_expr_list_unique, ListNameSpace::unique);
-gen_impl_expr_list!(polars_expr_list_unique_stable, ListNameSpace::unique_stable);
-gen_impl_expr_list!(polars_expr_list_first, ListNameSpace::first);
-gen_impl_expr_list!(polars_expr_list_last, ListNameSpace::last);
+    pub fn literal_i64(value: i64) -> CCallRefRet<Self> {
+        jlrs_make_expr(Expr::Literal(LiteralValue::Int64(value)))
+    }
 
-macro_rules! gen_impl_expr_binary_list {
-    ($n: ident, $t: expr) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $n(
-            a: *const polars_expr_t,
-            b: *const polars_expr_t,
-        ) -> *const polars_expr_t {
-            let expr = $t((*a).inner.clone().list(), ((*b).inner.clone()));
-            make_expr(expr)
-        }
-    };
-}
+    pub fn literal_u32(value: u32) -> CCallRefRet<Self> {
+        jlrs_make_expr(Expr::Literal(LiteralValue::UInt32(value)))
+    }
 
-gen_impl_expr_binary_list!(polars_expr_list_get, |a, b| ListNameSpace::get(a, b, true));
-gen_impl_expr_binary_list!(polars_expr_list_head, ListNameSpace::head);
-gen_impl_expr_binary_list!(polars_expr_list_contains, ListNameSpace::contains);
+    pub fn literal_u64(value: u64) -> CCallRefRet<Self> {
+        jlrs_make_expr(Expr::Literal(LiteralValue::UInt64(value)))
+    }
 
-macro_rules! gen_impl_expr_str {
-    ($n: ident, $t: expr) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $n(a: *const polars_expr_t) -> *const polars_expr_t {
-            let expr = $t((*a).inner.clone().str());
-            make_expr(expr)
-        }
-    };
-}
+    pub fn literal_f32(value: f32) -> CCallRefRet<Self> {
+        jlrs_make_expr(Expr::Literal(LiteralValue::Float32(value)))
+    }
 
-gen_impl_expr_str!(polars_expr_str_to_uppercase, StringNameSpace::to_uppercase);
-gen_impl_expr_str!(polars_expr_str_to_lowercase, StringNameSpace::to_lowercase);
-#[cfg(feature = "nightly")]
-gen_impl_expr_str!(polars_expr_str_to_titlecase, StringNameSpace::to_titlecase);
-gen_impl_expr_str!(polars_expr_str_n_chars, StringNameSpace::len_chars);
-gen_impl_expr_str!(polars_expr_str_lengths, StringNameSpace::len_bytes);
-// gen_impl_expr_str!(polars_expr_str_explode, StringNameSpace::explode);
+    pub fn literal_f64(value: f64) -> CCallRefRet<Self> {
+        jlrs_make_expr(Expr::Literal(LiteralValue::Float64(value)))
+    }
 
-macro_rules! gen_impl_expr_binary_str {
-    ($n: ident, $t: expr) => {
-        #[no_mangle]
-        pub unsafe extern "C" fn $n(
-            a: *const polars_expr_t,
-            b: *const polars_expr_t,
-        ) -> *const polars_expr_t {
-            let expr = $t((*a).inner.clone().str(), ((*b).inner.clone()));
-            make_expr(expr)
-        }
-    };
-}
+    pub fn literal_utf8(s: JuliaString) -> JlrsResult<CCallRefRet<Self>> {
+        Ok(jlrs_make_expr(Expr::Literal(LiteralValue::String(s.as_str()?.into()))))
+    }
 
-gen_impl_expr_binary_str!(polars_expr_str_starts_with, StringNameSpace::starts_with);
-gen_impl_expr_binary_str!(polars_expr_str_ends_with, StringNameSpace::ends_with);
-gen_impl_expr_binary_str!(
-    polars_expr_str_contains_literal,
-    StringNameSpace::contains_literal
-);
+    pub fn col(name: JuliaString) -> JlrsResult<CCallRefRet<Self>> {
+        Ok(jlrs_make_expr(Expr::Column(name.as_str()?.into())))
+    }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_struct_field_by_name(
-    a: *const polars_expr_t,
-    name: *const u8,
-    len: usize,
-) -> *const polars_expr_t {
-    let name = std::slice::from_raw_parts(name, len);
-    let Ok(name) = std::str::from_utf8(name) else {
-        return std::ptr::null();
-    };
-    let expr = (*a).inner.clone().struct_().field_by_name(name);
-    make_expr(expr)
-}
+    pub fn alias(&self, name: JuliaString) -> JlrsResult<CCallRefRet<Self>> {
+        Ok(jlrs_make_expr(self.inner.clone().alias(name.as_str()?)))
+    }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_struct_field_by_index(
-    a: *const polars_expr_t,
-    fieldidx: i64,
-) -> *const polars_expr_t {
-    let expr = (*a).inner.clone().struct_().field_by_index(fieldidx);
-    make_expr(expr)
-}
+    pub fn prefix(&self, name: JuliaString) -> JlrsResult<CCallRefRet<Self>> {
+        Ok(jlrs_make_expr(self.inner.clone().name().prefix(name.as_str()?)))
+    }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_expr_struct_rename_fields(
-    a: *const polars_expr_t,
-    names: *const *const u8,
-    lens: *const usize,
-    num_names: usize,
-) -> *const polars_expr_t {
-    let names = std::slice::from_raw_parts(names, num_names);
-    let lens = std::slice::from_raw_parts(lens, num_names);
+    pub fn suffix(&self, name: JuliaString) -> JlrsResult<CCallRefRet<Self>> {
+        Ok(jlrs_make_expr(self.inner.clone().name().suffix(name.as_str()?)))
+    }
 
-    let names = names
-        .iter()
-        .zip(lens)
-        .map(|(name, len)| {
-            std::str::from_utf8_unchecked(std::slice::from_raw_parts(*name, *len))
-        })
-        .collect::<Vec<_>>();
+    pub fn keep_name(&self) -> CCallRefRet<Self> {
+        jlrs_make_expr(self.inner.clone().name().keep())
+    }
 
-    let expr = (*a).inner.clone().struct_().rename_fields(names);
-    make_expr(expr)
+    gen_impl_expr!(sum product mean median min max arg_min arg_max nan_min nan_max);
+    gen_impl_expr!(floor ceil abs cos sin tan cosh sinh tanh);
+    gen_impl_expr!(n_unique unique count first last);
+    gen_impl_expr!(not is_finite is_infinite is_nan is_null is_not_null null_count drop_nans drop_nulls);
+    gen_impl_expr!(implode flatten reverse);
+
+    gen_impl_expr_binary!(eq lt gt or xor and pow);
+    gen_impl_expr_binary!(add, core::ops::Add::add);
+    gen_impl_expr_binary!(sub, core::ops::Sub::sub);
+    gen_impl_expr_binary!(mul, core::ops::Mul::mul);
+    gen_impl_expr_binary!(div, core::ops::Div::div);
+
+    gen_impl_expr!(list@ListNameSpace: len max min arg_max arg_min sum mean reverse unique unique_stable first last);
+    pub fn list_get(&self, b: &Self, null_on_oob: bool) -> CCallRefRet<Self> {
+        jlrs_make_expr(ListNameSpace::get(self.inner.clone().list(), b.inner.clone(), null_on_oob))
+    }
+    gen_impl_expr_binary!(list@ListNameSpace: contains head);
+
+    gen_impl_expr!(str@StringNameSpace: to_uppercase to_lowercase len_chars len_bytes);
+    #[cfg(feature = "nightly")]
+    gen_impl_expr!(str@StringNameSpace: to_titlecase);
+    gen_impl_expr_binary!(str@StringNameSpace: starts_with ends_with contains_literal);
+
+    pub fn struct_field_by_name(&self, name: JuliaString) -> JlrsResult<CCallRefRet<Self>> {
+        Ok(jlrs_make_expr(self.inner.clone().struct_().field_by_name(name.as_str()?)))
+    }
+
+    pub fn struct_field_by_index(&self, fieldidx: i64) -> CCallRefRet<Self> {
+        jlrs_make_expr(self.inner.clone().struct_().field_by_index(fieldidx))
+    }
+
+    pub fn struct_rename_fields(&self, names: Vec<JuliaString>) -> JlrsResult<CCallRefRet<Self>> {
+        let names = names.iter().map(|s| s.as_str()).collect::<JlrsResult<Vec<_>>>()?;
+        Ok(jlrs_make_expr(self.inner.clone().struct_().rename_fields(names)))
+    }
 }
