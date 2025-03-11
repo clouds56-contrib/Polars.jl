@@ -1,10 +1,23 @@
+use std::ffi::c_void;
+
 use jlrs::convert::ccall_types::CCallArg;
 use jlrs::data::types::abstract_type::RefTypeConstructor;
 use jlrs::prelude::*;
 use jlrs::data::managed::ccall_ref::CCallRefRet;
-use jlrs::data::managed::ccall_ref::CCallRef;
 use jlrs::data::managed::value::typed::TypedValue;
-use crate::polars_expr_t;
+use crate::polars_dataframe_t;
+use crate::polars_series_t;
+use crate::{polars_expr_t, polars_lazy_frame_t};
+
+pub type TypedVec<'scope, 'data, T> = TypedVector<'scope, 'data, TypedValue<'scope, 'data, T>>;
+pub trait TypedVecExt<'scope, 'data, T> {
+    fn as_slice(&self) -> &'data [T];
+}
+impl<'scope, 'data, T> TypedVecExt<'scope, 'data, T> for TypedVec<'scope, 'data, T> {
+    fn as_slice(&self) -> &'data [T] {
+        unsafe { std::slice::from_raw_parts(self.data_ptr() as *const T, self.length()) }
+    }
+}
 
 unsafe impl CCallArg for &'_ polars_expr_t {
     type CCallArgType = RefTypeConstructor<polars_expr_t>;
@@ -80,4 +93,15 @@ julia_module!{
     in polars_expr_t fn sub(&self, other: &polars_expr_t) -> CCallRefRet<polars_expr_t> as polars_expr_sub;
     in polars_expr_t fn mul(&self, other: &polars_expr_t) -> CCallRefRet<polars_expr_t> as polars_expr_mul;
     in polars_expr_t fn div(&self, other: &polars_expr_t) -> CCallRefRet<polars_expr_t> as polars_expr_div;
+
+    struct polars_series_t;
+
+    struct polars_dataframe_t;
+    in polars_dataframe_t fn new_from_series(series: TypedVec<polars_series_t>) -> JlrsResult<CCallRefRet<polars_dataframe_t>> as polars_dataframe_new_from_series;
+
+    struct polars_lazy_frame_t;
+    in polars_lazy_frame_t fn clone(&self) -> CCallRefRet<polars_lazy_frame_t> as polars_lazy_frame_clone;
+    in polars_lazy_frame_t fn sort(&mut self, exprs: TypedVec<polars_expr_t>, descending: TypedVec<Bool>, nulls_last: Bool, maintain_order: Bool) as polars_lazy_frame_sort;
+    in polars_lazy_frame_t fn select(&mut self, expr: TypedVec<polars_expr_t>) as polars_lazy_frame_select;
+
 }

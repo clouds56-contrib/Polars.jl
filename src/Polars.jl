@@ -51,10 +51,9 @@ function polars_error(err::Ptr{polars_error_t})
 end
 
 mutable struct DataFrame
-    ptr::Ptr{polars_dataframe_t}
+    ptr::polars_dataframe_t
 
-    DataFrame(ptr::Ptr{polars_dataframe_t}) =
-        finalizer(polars_dataframe_destroy, new(ptr))
+    DataFrame(ptr::polars_dataframe_t) = new(ptr)
 end
 
 """
@@ -179,7 +178,7 @@ function _select!(df::LazyFrame, exprs::Vector)
     exprs = convert(Vector{Expr}, exprs)
     @GC.preserve exprs begin
         exprs_ptrs = polars_expr_t[expr.ptr for expr in exprs]
-        polars_lazy_frame_select(df, exprs_ptrs, length(exprs_ptrs))
+        polars_lazy_frame_select(df.ptr, exprs_ptrs)
     end
     df
 end

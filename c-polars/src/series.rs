@@ -1,5 +1,12 @@
 use crate::{value::polars_value_type_t, *};
 
+pub(crate) fn jlrs_make_series(series: Column) -> CCallRefRet<polars_series_t> {
+    match weak_handle!() {
+        Ok(handle) => CCallRefRet::new(TypedValue::new(handle, polars_series_t { inner: series }).leak()),
+        Err(_) => panic!("not called from Julia"),
+    }
+}
+
 pub(crate) fn make_series(series: Column) -> *mut polars_series_t {
     Box::into_raw(Box::new(polars_series_t { inner: series }))
 }

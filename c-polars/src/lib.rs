@@ -4,7 +4,8 @@
 use std::ffi::c_void;
 use std::io::Write;
 
-use jlrs::data::types::foreign_type::OpaqueType;
+use jlrs::{data::{managed::{ccall_ref::CCallRefRet, value::typed::TypedValue}, types::foreign_type::OpaqueType}, weak_handle};
+use julia::{TypedVec, TypedVecExt};
 use polars::prelude::*;
 use polars_core::utils::arrow::{
     self,
@@ -12,6 +13,7 @@ use polars_core::utils::arrow::{
     ffi::{self, ArrowArray, ArrowSchema},
 };
 
+mod frame;
 mod expr;
 mod series;
 mod value;
@@ -83,6 +85,9 @@ pub struct polars_expr_t {
 }
 
 unsafe impl OpaqueType for polars_expr_t {}
+unsafe impl OpaqueType for polars_series_t {}
+unsafe impl OpaqueType for polars_lazy_frame_t {}
+unsafe impl OpaqueType for polars_dataframe_t {}
 
 fn make_dataframe(df: DataFrame) -> *mut polars_dataframe_t {
     Box::into_raw(Box::new(polars_dataframe_t { inner: df }))
@@ -157,70 +162,6 @@ pub unsafe extern "C" fn polars_dataframe_schema(df: *mut polars_dataframe_t) ->
     ffi::export_field_to_c(&structfield)
 }
 
-#[no_mangle]
-pub unsafe extern "C" fn polars_dataframe_new_from_series(
-    series: *const *mut polars_series_t,
-    nseries: usize,
-    out: *mut *mut polars_dataframe_t,
-) -> *const polars_error_t {
-    let slice: &[*mut polars_series_t] = std::slice::from_raw_parts(series, nseries);
-    let series: Vec<Column> = slice.iter().map(|s| (**s).inner.clone()).collect();
-    let df = match DataFrame::new(series) {
-        Ok(df) => df,
-        Err(err) => return make_error(err),
-    };
-    *out = make_dataframe(df);
-    std::ptr::null()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_dataframe_destroy(df: *mut polars_dataframe_t) {
-    let _ = Box::from_raw(df);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_dataframe_write_parquet(
-    df: *mut polars_dataframe_t,
-    user: *const c_void,
-    callback: IOCallback,
-) -> *const polars_error_t {
-    let df = &mut (*df).inner;
-
-    let w = UserIOCallback(callback, user);
-    if let Err(err) = ParquetWriter::new(w).finish(df) {
-        return make_error(err);
-    }
-
-    std::ptr::null()
-}
-
-#[no_mangle]
-pub extern "C" fn polars_dataframe_read_parquet(
-    path: *const u8,
-    pathlen: usize,
-    out: *mut *mut polars_dataframe_t,
-) -> *const polars_error_t {
-    let path = unsafe { std::slice::from_raw_parts(path, pathlen) };
-    let path = match std::str::from_utf8(path) {
-        Ok(path) => path,
-        Err(err) => return make_error(err),
-    };
-
-    let file = match std::fs::OpenOptions::new().read(true).open(path) {
-        Ok(file) => file,
-        Err(err) => return make_error(err),
-    };
-
-    match ParquetReader::new(file).finish() {
-        Ok(df) => unsafe {
-            *out = make_dataframe(df);
-        },
-        Err(err) => return make_error(err),
-    }
-
-    std::ptr::null()
-}
-
 pub(crate) struct UserIOCallback(IOCallback, *const c_void);
 
 impl std::io::Write for UserIOCallback {
@@ -239,97 +180,6 @@ impl std::io::Write for UserIOCallback {
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
     }
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_dataframe_show(
-    df: *mut polars_dataframe_t,
-    user: *const c_void,
-    callback: IOCallback,
-) {
-    let df = &(*df).inner;
-    let mut w = UserIOCallback(callback, user);
-    write!(w, "{df}").expect("failed to show dataframe");
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_dataframe_get(
-    df: *mut polars_dataframe_t,
-    name: *const u8,
-    len: usize,
-    out: *mut *mut polars_series_t,
-) -> *const polars_error_t {
-    let name = unsafe { std::slice::from_raw_parts(name, len) };
-    let name = match std::str::from_utf8(name) {
-        Ok(path) => path,
-        Err(err) => return make_error(err),
-    };
-
-    let df = &(*df).inner;
-    let mut series = match df.select_columns([name]) {
-        Ok(columns) => columns,
-        Err(err) => return make_error(err),
-    };
-
-    let Some(series) = series.pop() else {
-        return make_error(format!("dataframe has not column {name}"));
-    };
-
-    *out = series::make_series(series);
-
-    std::ptr::null()
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_dataframe_lazy(
-    df: *mut polars_dataframe_t,
-) -> *mut polars_lazy_frame_t {
-    let df = &(*df).inner;
-    Box::into_raw(Box::new(polars_lazy_frame_t {
-        inner: df.clone().lazy(),
-    }))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_lazy_frame_destroy(df: *mut polars_lazy_frame_t) {
-    assert!(!df.is_null());
-    let _ = Box::from_raw(df);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_lazy_frame_clone(
-    df: *mut polars_lazy_frame_t,
-) -> *mut polars_lazy_frame_t {
-    assert!(!df.is_null());
-    Box::into_raw(Box::new(polars_lazy_frame_t {
-        inner: (*df).inner.clone(),
-    }))
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_lazy_frame_sort(
-    df: *mut polars_lazy_frame_t,
-    exprs: *const *const polars_expr_t,
-    nexprs: usize,
-    descending: *const bool,
-    nulls_last: bool,
-    maintain_order: bool,
-) {
-    let exprs: Vec<Expr> = std::slice::from_raw_parts(exprs, nexprs)
-        .iter()
-        .map(|expr| (**expr).inner.clone())
-        .collect();
-    let descending = std::slice::from_raw_parts(descending, nexprs);
-    let mut df = Box::from_raw(df);
-    df.inner = df
-        .inner
-        .sort_by_exprs(&exprs,
-            SortMultipleOptions::new()
-                .with_order_descending_multi(descending.iter().copied())
-                .with_nulls_last(nulls_last)
-                .with_maintain_order(maintain_order),
-            );
-    std::mem::forget(df);
 }
 
 #[no_mangle]
@@ -361,21 +211,6 @@ pub unsafe extern "C" fn polars_lazy_frame_with_columns(
         .collect();
     let mut df = Box::from_raw(df);
     df.inner = df.inner.with_columns(&exprs);
-    std::mem::forget(df);
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn polars_lazy_frame_select(
-    df: *mut polars_lazy_frame_t,
-    exprs: *const *const polars_expr_t,
-    nexprs: usize,
-) {
-    let exprs: Vec<Expr> = std::slice::from_raw_parts(exprs, nexprs)
-        .iter()
-        .map(|expr| (**expr).inner.clone())
-        .collect();
-    let mut df = Box::from_raw(df);
-    df.inner = df.inner.select(&exprs);
     std::mem::forget(df);
 }
 
